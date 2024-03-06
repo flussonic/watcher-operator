@@ -1,3 +1,4 @@
+env
 
 # Binaries for programs and plugins
 *.exe
@@ -26,3 +27,4 @@ go.work
 *.swp
 *.swo
 *~
+k3s.yaml

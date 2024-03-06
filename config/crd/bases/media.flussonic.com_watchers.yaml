@@ -37,6 +37,10 @@ spec:
               central:
                 description: Central URL. You should launch it yourself
                 type: string
+              database:
+                description: Database URL. You should launch it yourself. Postgres
+                  right now.
+                type: string
               image:
                 description: Docker image for watcher
                 type: string

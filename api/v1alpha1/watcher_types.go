@@ -31,6 +31,9 @@ type WatcherSpec struct {
 	// Docker image for watcher
 	Image string `json:"image,omitempty"`
 
+	// Database URL. You should launch it yourself. Postgres right now.
+	Database string `json:"database,omitempty"`
+
 	// Central URL. You should launch it yourself
 	Central string `json:"central,omitempty"`
 }
