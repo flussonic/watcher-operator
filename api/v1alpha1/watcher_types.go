@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -29,13 +30,24 @@ type WatcherSpec struct {
 	// Important: Run "make" to regenerate code after modifying this file
 
 	// Docker image for watcher
-	Image string `json:"image,omitempty"`
+	Image string `json:"image"`
 
-	// Database URL. You should launch it yourself. Postgres right now.
-	Database string `json:"database,omitempty"`
+	// (Optional) PodEnvVariables is a slice of environment variables that are added to the pods
+	// Default: (empty list)
+	// +optional
+	PodEnvVariables []corev1.EnvVar `json:"env,omitempty"`
+
+	// Database URL. You should launch it yourself. Only Postgres is supported
+	Database string `json:"database"`
 
 	// Central URL. You should launch it yourself
 	Central string `json:"central,omitempty"`
+
+	// Count of web workers
+	WebWorkers int32 `json:"webWorkers,omitempty"`
+
+	// (Optional) node selector for placing pods with Web worker instances.
+	WebNodeSelector map[string]string `json:"webNodeSelector,omitempty" protobuf:"bytes,7,rep,name=webNodeSelector"`
 }
 
 // WatcherStatus defines the observed state of Watcher

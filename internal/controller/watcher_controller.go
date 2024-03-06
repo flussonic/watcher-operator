@@ -20,6 +20,7 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	// rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -48,6 +49,8 @@ type WatcherReconciler struct {
 //+kubebuilder:rbac:groups=media.flussonic.com,resources=watchers/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=media.flussonic.com,resources=watchers/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -84,7 +87,7 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err := r.deployWatcherWeb(ctx, watcher)
+	retry, err = r.deployWatcherWeb(ctx, watcher)
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -92,7 +95,7 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err := r.deployWorkers(ctx, watcher)
+	retry, err = r.deployWorkers(ctx, watcher)
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -100,7 +103,7 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err := r.deployFirstRun(ctx, watcher)
+	retry, err = r.deployFirstRun(ctx, watcher)
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -192,7 +195,141 @@ func (r *WatcherReconciler) deployRedis(ctx context.Context, w *mediav1.Watcher)
 	return false, nil
 }
 
+func commonEnv(w *mediav1.Watcher) []corev1.EnvVar {
+	env := []corev1.EnvVar{}
+
+	env = append(env, corev1.EnvVar{
+		Name:  "REDIS",
+		Value: "redis://" + w.Name + "-redis." + w.Namespace + ".svc.cluster.local:9017",
+	})
+
+	env = append(env, corev1.EnvVar{
+		Name:  "CENTRAL_URL",
+		Value: w.Spec.Central,
+	})
+
+	env = append(env, corev1.EnvVar{
+		Name:  "DB",
+		Value: w.Spec.Database,
+	})
+
+	return env
+}
+
+func webEnv(w *mediav1.Watcher) []corev1.EnvVar {
+	env := commonEnv(w)
+
+	env = append(env, corev1.EnvVar{
+		Name:  "PORT",
+		Value: "9015",
+	})
+
+	env = append(env, corev1.EnvVar{
+		Name:  "LISTEN_HOST",
+		Value: "0.0.0.0",
+	})
+
+	env = append(env, corev1.EnvVar{
+		Name:  "NODBCHECK",
+		Value: "true",
+	})
+
+	env = append(env, w.Spec.PodEnvVariables...)
+	return env
+}
+
 func (r *WatcherReconciler) deployWatcherWeb(ctx context.Context, w *mediav1.Watcher) (bool, error) {
+	serviceName := w.Name + "-web"
+	webName := w.Name + "-web"
+
+	labels := map[string]string{"app": webName}
+
+	svc1 := &corev1.Service{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: w.Namespace}, svc1)
+	if err != nil && errors.IsNotFound(err) {
+
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceName,
+				Namespace: w.Namespace,
+			},
+			Spec: corev1.ServiceSpec{
+				Selector: labels,
+				Type:     "ClusterIP",
+				Ports: []corev1.ServicePort{{
+					Name:       "watcher",
+					Port:       80,
+					TargetPort: intstr.FromInt(9015),
+				}},
+			},
+		}
+		ctrl.SetControllerReference(w, svc, r.Scheme)
+		err = r.Client.Create(ctx, svc)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	env := webEnv(w)
+	webWorkers := w.Spec.WebWorkers
+	if webWorkers == 0 {
+		webWorkers = 2
+	}
+	replicas := int32(webWorkers)
+
+	deploy1 := &appsv1.Deployment{}
+	err = r.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: w.Namespace}, deploy1)
+	if err != nil && errors.IsNotFound(err) {
+
+		spec := corev1.PodSpec{
+			NodeSelector: w.Spec.WebNodeSelector,
+			Containers: []corev1.Container{{
+				Name:            "watcher",
+				Image:           w.Spec.Image,
+				ImagePullPolicy: "IfNotPresent",
+				Env:             env,
+			}},
+		}
+
+		deploy := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      webName,
+				Namespace: w.Namespace,
+			},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{
+					MatchLabels: labels,
+				},
+				Replicas: &replicas,
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: labels,
+					},
+					Spec: spec,
+				},
+			},
+		}
+		ctrl.SetControllerReference(w, deploy, r.Scheme)
+		err = r.Client.Create(ctx, deploy)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	deploy1.Spec.Template.Spec.NodeSelector = w.Spec.WebNodeSelector
+	deploy1.Spec.Template.Spec.Containers[0].Image = w.Spec.Image
+	deploy1.Spec.Template.Spec.Containers[0].Env = env
+	deploy1.Spec.Replicas = &replicas
+	err = r.Client.Update(ctx, deploy1)
+	if err != nil {
+		return false, err
+	}
 
 	return false, nil
 }
@@ -204,6 +341,56 @@ func (r *WatcherReconciler) deployWorkers(ctx context.Context, w *mediav1.Watche
 
 func (r *WatcherReconciler) deployFirstRun(ctx context.Context, w *mediav1.Watcher) (bool, error) {
 
+	env := commonEnv(w)
+	env = append(env, w.Spec.PodEnvVariables...)
+
+	spec := corev1.PodSpec{
+		RestartPolicy: "OnFailure",
+		Containers: []corev1.Container{{
+			Name:            "firstrun",
+			Image:           w.Spec.Image,
+			ImagePullPolicy: "IfNotPresent",
+			Env:             env,
+			Command: []string{
+				"/bin/sh",
+				"-c",
+				`/opt/flussonic/bin/python3 -m manage check &&
+		          /opt/flussonic/bin/python3 -m manage ensure_api_key &&
+		          /opt/flussonic/bin/watcher-firstrun.sh`,
+			},
+		}},
+	}
+
+	jobName := w.Name + "-firstrun"
+	j1 := &batchv1.Job{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: jobName, Namespace: w.Namespace}, j1)
+	if err != nil && errors.IsNotFound(err) {
+
+		parallelism := int32(1)
+		timeout := int64(180)
+		j := &batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      jobName,
+				Namespace: w.Namespace,
+			},
+			Spec: batchv1.JobSpec{
+				ActiveDeadlineSeconds: &timeout,
+				Parallelism:           &parallelism,
+				Template: corev1.PodTemplateSpec{
+					Spec: spec,
+				},
+			},
+		}
+		ctrl.SetControllerReference(w, j, r.Scheme)
+		err = r.Client.Create(ctx, j)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
 	return false, nil
 }
 
@@ -212,5 +399,8 @@ func (r *WatcherReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&mediav1.Watcher{}).
 		Owns(&appsv1.StatefulSet{}).
+		Owns(&appsv1.Deployment{}).
+		Owns(&corev1.Service{}).
+		Owns(&batchv1.Job{}).
 		Complete(r)
 }
