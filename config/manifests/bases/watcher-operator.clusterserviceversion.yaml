@@ -1,0 +1,50 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: watcher-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: Watcher is the Schema for the watchers API
+      displayName: Watcher
+      kind: Watcher
+      name: watchers.media.flussonic.com
+      version: v1alpha1
+  description: Videosurveillance management system
+  displayName: Flussonic Watcher VMS
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - vms
+  - videosurveillance
+  - ipcamera
+  links:
+  - name: Watcher Operator
+    url: https://watcher-operator.domain
+  maintainers:
+  - email: m.lapshin@flussonic.com
+    name: Max Lapshin
+  maturity: alpha
+  provider:
+    name: Flussonic
+    url: https://flussonic.com/watcher
+  version: 0.0.0
