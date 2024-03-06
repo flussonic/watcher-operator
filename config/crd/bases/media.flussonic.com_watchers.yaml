@@ -154,6 +154,16 @@ spec:
               image:
                 description: Docker image for watcher
                 type: string
+              jobNodeSelector:
+                additionalProperties:
+                  type: string
+                description: (Optional) node selector for placing pods with Web worker
+                  instances.
+                type: object
+              jobWorkers:
+                description: Count of background job workers
+                format: int32
+                type: integer
               webNodeSelector:
                 additionalProperties:
                   type: string

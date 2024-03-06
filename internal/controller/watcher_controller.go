@@ -79,7 +79,15 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err := r.deployRedis(ctx, watcher)
+	retry, err := r.deployFirstRun(ctx, watcher)
+	if retry {
+		return ctrl.Result{Requeue: true}, nil
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	retry, err = r.deployRedis(ctx, watcher)
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -95,7 +103,7 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err = r.deployWorkers(ctx, watcher)
+	retry, err = r.deployJobWorkers(ctx, watcher)
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -103,7 +111,15 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err = r.deployFirstRun(ctx, watcher)
+	retry, err = r.deployOtherWorkers(ctx, watcher, "scheduler")
+	if retry {
+		return ctrl.Result{Requeue: true}, nil
+	}
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	retry, err = r.deployOtherWorkers(ctx, watcher, "episodes")
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -238,6 +254,12 @@ func webEnv(w *mediav1.Watcher) []corev1.EnvVar {
 	return env
 }
 
+func bgEnv(w *mediav1.Watcher) []corev1.EnvVar {
+	env := commonEnv(w)
+	env = append(env, w.Spec.PodEnvVariables...)
+	return env
+}
+
 func (r *WatcherReconciler) deployWatcherWeb(ctx context.Context, w *mediav1.Watcher) (bool, error) {
 	serviceName := w.Name + "-web"
 	webName := w.Name + "-web"
@@ -281,7 +303,7 @@ func (r *WatcherReconciler) deployWatcherWeb(ctx context.Context, w *mediav1.Wat
 	replicas := int32(webWorkers)
 
 	deploy1 := &appsv1.Deployment{}
-	err = r.Client.Get(ctx, types.NamespacedName{Name: serviceName, Namespace: w.Namespace}, deploy1)
+	err = r.Client.Get(ctx, types.NamespacedName{Name: webName, Namespace: w.Namespace}, deploy1)
 	if err != nil && errors.IsNotFound(err) {
 
 		spec := corev1.PodSpec{
@@ -334,15 +356,137 @@ func (r *WatcherReconciler) deployWatcherWeb(ctx context.Context, w *mediav1.Wat
 	return false, nil
 }
 
-func (r *WatcherReconciler) deployWorkers(ctx context.Context, w *mediav1.Watcher) (bool, error) {
+func (r *WatcherReconciler) deployJobWorkers(ctx context.Context, w *mediav1.Watcher) (bool, error) {
+	env := bgEnv(w)
+	jobWorkers := w.Spec.JobWorkers
+	if jobWorkers == 0 {
+		jobWorkers = 2
+	}
+	replicas := int32(jobWorkers)
+
+	jobWorkerName := w.Name + "-bgjob"
+	labels := map[string]string{"app": jobWorkerName}
+
+	deploy1 := &appsv1.Deployment{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: jobWorkerName, Namespace: w.Namespace}, deploy1)
+	if err != nil && errors.IsNotFound(err) {
+
+		spec := corev1.PodSpec{
+			NodeSelector: w.Spec.JobNodeSelector,
+			Containers: []corev1.Container{{
+				Name:            "watcher",
+				Image:           w.Spec.Image,
+				ImagePullPolicy: "IfNotPresent",
+				Env:             env,
+				Args:            []string{"worker"},
+			}},
+		}
+
+		deploy := &appsv1.Deployment{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      jobWorkerName,
+				Namespace: w.Namespace,
+			},
+			Spec: appsv1.DeploymentSpec{
+				Selector: &metav1.LabelSelector{
+					MatchLabels: labels,
+				},
+				Replicas: &replicas,
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: labels,
+					},
+					Spec: spec,
+				},
+			},
+		}
+		ctrl.SetControllerReference(w, deploy, r.Scheme)
+		err = r.Client.Create(ctx, deploy)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	deploy1.Spec.Template.Spec.NodeSelector = w.Spec.JobNodeSelector
+	deploy1.Spec.Template.Spec.Containers[0].Image = w.Spec.Image
+	deploy1.Spec.Template.Spec.Containers[0].Env = env
+	deploy1.Spec.Replicas = &replicas
+	err = r.Client.Update(ctx, deploy1)
+	if err != nil {
+		return false, err
+	}
+
+	return false, nil
+}
+
+func (r *WatcherReconciler) deployOtherWorkers(ctx context.Context, w *mediav1.Watcher, worker string) (bool, error) {
+	env := bgEnv(w)
+	replicas := int32(1)
+
+	workerName := w.Name + "-" + worker
+	labels := map[string]string{"app": workerName}
+
+	deploy1 := &appsv1.StatefulSet{}
+	err := r.Client.Get(ctx, types.NamespacedName{Name: workerName, Namespace: w.Namespace}, deploy1)
+	if err != nil && errors.IsNotFound(err) {
+
+		spec := corev1.PodSpec{
+			NodeSelector: w.Spec.JobNodeSelector,
+			Containers: []corev1.Container{{
+				Name:            "watcher",
+				Image:           w.Spec.Image,
+				ImagePullPolicy: "IfNotPresent",
+				Env:             env,
+				Args:            []string{worker},
+			}},
+		}
+
+		deploy := &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      workerName,
+				Namespace: w.Namespace,
+			},
+			Spec: appsv1.StatefulSetSpec{
+				Selector: &metav1.LabelSelector{
+					MatchLabels: labels,
+				},
+				Replicas: &replicas,
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels: labels,
+					},
+					Spec: spec,
+				},
+			},
+		}
+		ctrl.SetControllerReference(w, deploy, r.Scheme)
+		err = r.Client.Create(ctx, deploy)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	deploy1.Spec.Template.Spec.NodeSelector = w.Spec.JobNodeSelector
+	deploy1.Spec.Template.Spec.Containers[0].Image = w.Spec.Image
+	deploy1.Spec.Template.Spec.Containers[0].Env = env
+	deploy1.Spec.Replicas = &replicas
+	err = r.Client.Update(ctx, deploy1)
+	if err != nil {
+		return false, err
+	}
 
 	return false, nil
 }
 
 func (r *WatcherReconciler) deployFirstRun(ctx context.Context, w *mediav1.Watcher) (bool, error) {
 
-	env := commonEnv(w)
-	env = append(env, w.Spec.PodEnvVariables...)
+	env := bgEnv(w)
 
 	spec := corev1.PodSpec{
 		RestartPolicy: "OnFailure",

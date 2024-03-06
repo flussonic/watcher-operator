@@ -46,8 +46,14 @@ type WatcherSpec struct {
 	// Count of web workers
 	WebWorkers int32 `json:"webWorkers,omitempty"`
 
+	// Count of background job workers
+	JobWorkers int32 `json:"jobWorkers,omitempty"`
+
 	// (Optional) node selector for placing pods with Web worker instances.
 	WebNodeSelector map[string]string `json:"webNodeSelector,omitempty" protobuf:"bytes,7,rep,name=webNodeSelector"`
+
+	// (Optional) node selector for placing pods with Web worker instances.
+	JobNodeSelector map[string]string `json:"jobNodeSelector,omitempty" protobuf:"bytes,7,rep,name=jobNodeSelector"`
 }
 
 // WatcherStatus defines the observed state of Watcher
