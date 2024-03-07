@@ -27,11 +27,11 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	// "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	// "sigs.k8s.io/controller-runtime/pkg/log"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	mediav1 "github.com/flussonic/watcher-operator/api/v1alpha1"
 	"github.com/go-logr/logr"
-	"github.com/lithammer/shortuuid/v3"
+	// "github.com/lithammer/shortuuid/v3"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,8 +63,8 @@ type WatcherReconciler struct {
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.16.3/pkg/reconcile
 func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	// _ = log.FromContext(ctx)
-	log := r.Log.WithValues("Watcher", req.NamespacedName, "ReconcileId", shortuuid.New())
+	log := ctrllog.FromContext(ctx)
+	// log := r.Log.WithValues("Watcher", req.NamespacedName, "ReconcileId", shortuuid.New())
 
 	// TODO(user): your logic here
 	log.Info("Processing WatcherReconciler")
@@ -80,15 +80,16 @@ func (r *WatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	retry, err := r.deployFirstRun(ctx, watcher)
-	if retry {
-		return ctrl.Result{Requeue: true}, nil
-	}
+	result, err := r.deployFirstRun(ctx, watcher)
 	if err != nil {
-		return ctrl.Result{}, err
+		return result, err
+	}
+	if result.Requeue {
+		log.Info("Reconcile after firstrun", "timeout", result.RequeueAfter)
+		return result, err
 	}
 
-	retry, err = r.deployRedis(ctx, watcher)
+	retry, err := r.deployRedis(ctx, watcher)
 	if retry {
 		return ctrl.Result{Requeue: true}, nil
 	}
@@ -485,7 +486,7 @@ func (r *WatcherReconciler) deployOtherWorkers(ctx context.Context, w *mediav1.W
 	return false, nil
 }
 
-func (r *WatcherReconciler) deployFirstRun(ctx context.Context, w *mediav1.Watcher) (bool, error) {
+func (r *WatcherReconciler) deployFirstRun(ctx context.Context, w *mediav1.Watcher) (ctrl.Result, error) {
 
 	env := bgEnv(w)
 
@@ -529,14 +530,17 @@ func (r *WatcherReconciler) deployFirstRun(ctx context.Context, w *mediav1.Watch
 		ctrl.SetControllerReference(w, j, r.Scheme)
 		err = r.Client.Create(ctx, j)
 		if err != nil {
-			return false, err
+			return ctrl.Result{}, err
 		}
-		return true, nil
+		return ctrl.Result{Requeue: true}, nil
 	} else if err != nil {
-		return false, err
+		return ctrl.Result{}, err
 	}
 
-	return false, nil
+	if j1.Status.CompletionTime != nil {
+		return ctrl.Result{}, nil
+	}
+	return ctrl.Result{Requeue: true, RequeueAfter: 5 * 1000 * 1000 * 1000}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

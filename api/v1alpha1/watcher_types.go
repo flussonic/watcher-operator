@@ -58,9 +58,48 @@ type WatcherSpec struct {
 
 // WatcherStatus defines the observed state of Watcher
 type WatcherStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// metav1.TypeMeta `json:",inline"`
+	// // Standard object's metadata.
+	// // More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+	// // +optional
+	// metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+
+	// // List of status conditions to indicate the status of certificates.
+	// // Known condition types are `Ready` and `Issuing`.
+	// Conditions []WatcherCondition `json:"conditions"`
 }
+
+// // WatcherCondition contains condition information about whole VMS cluster
+// type WatcherCondition struct {
+// 	// Type of whole cluster condition
+// 	Type WatcherConditionType `json:"type"`
+
+// 	// Status of the condition, one of True, False, Unknown.
+// 	Status corev1.ConditionStatus `json:"status" protobuf:"bytes,2,opt,name=status,casttype=k8s.io/api/core/v1.ConditionStatus"`
+
+// 	// LastTransitionTime is the timestamp corresponding to the last status
+// 	// change of this condition.
+// 	LastTransitionTime metav1.Time	`json:"lastTransitionTime,omitempty" protobuf:"bytes,4,opt,name=lastTransitionTime"`
+
+// 	// (brief) reason for the condition's last transition.
+// 	// +optional
+// 	Reason string `json:"reason,omitempty" protobuf:"bytes,5,opt,name=reason"`
+// 	// Human readable message indicating details about last transition.
+// 	// +optional
+// 	Message string `json:"message,omitempty" protobuf:"bytes,6,opt,name=message"`
+// }
+
+// type WatcherConditionType string
+
+// const (
+// 	WatcherConditionInitializing WatcherConditionType = "Initializing"
+
+// 	WatcherConditionMigratingDatabase WatcherConditionType = "MigratingDatabase"
+
+// 	WatcherConditionStarting WatcherConditionType = "Starting"
+
+// 	WatcherConditionReady WatcherConditionType = "Ready"
+// )
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
