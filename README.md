@@ -1,10 +1,67 @@
-# watcher-operator
-// TODO(user): Add simple overview of use/purpose
+# Watcher Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+This Watcher Operator is an implementation of Kubernetes Operator that allows to launch Watcher VMS in k8s:
 
-## Getting Started
+```
+apiVersion: media.flussonic.com/v1alpha1
+kind: Watcher
+metadata:
+  name: watcher
+spec:
+  central: "http://central.default.svc.cluster.local"
+  database: "postgresql://test:test@postgres.default.svc.cluster.local:5432/test_c"
+  image: "flussonic/watcher:v24.03-2"
+  env:
+    - name: LICENSE_KEY
+      value: "your-license-key"
+    - name: WATCHER_ADMIN_LOGIN
+      value: "admin"
+    - name: WATCHER_ADMIN_PASSWORD
+      value: "initialpassword"
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: watcher-sample
+spec:
+  defaultBackend:
+    service:
+      name: watcher-sample-web
+      port:
+        number: 80
+```
+
+This Operator will create about 10 different resources and manage them.
+
+Main feature here is maintaining database migrations
+
+
+## Usage
+
+To test on your laptop with `multipass` VM management tool:
+
+```
+./mp-start.sh
+```
+
+On your k8s installation:
+
+```
+kubectl label nodes streamer flussonic.com/streamer=true
+kubectl create secret generic flussonic-license \
+    --from-literal=license_key="${LICENSE_KEY}" \
+    --from-literal=edit_auth="root:password"
+
+
+kubectl apply -f https://flussonic.github.io/watcher-operator/latest/operator.yaml
+kubectl apply -f config/samples/media_v1alpha1_watcher.yaml
+```
+
+Then it will run on your server.
+
+
+
+# Development of watcher-operator
 
 ### Prerequisites
 - go version v1.20.0+
@@ -13,45 +70,27 @@
 - Access to a Kubernetes v1.11.3+ cluster.
 
 ### To Deploy on the cluster
+
 **Build and push your image to the location specified by `IMG`:**
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/watcher-operator:tag
+make docker-buildx
+make operator.yaml
+git add docs
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified. 
-And it is required to have access to pull the image from the working environment. 
-Make sure you have the proper permission to the registry if the above commands don’t work.
+**NOTE:** This image ought to be published in the public registry.
 
-**Install the CRDs into the cluster:**
+## Develop locally
 
 ```sh
-make install
+make all install run
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
-
-```sh
-make deploy IMG=<some-registry>/watcher-operator:tag
-```
-
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin 
-privileges or be logged in as admin.
-
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+Another tab:
 
 ```sh
 kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
 ```
 
 **Delete the APIs(CRDs) from the cluster:**

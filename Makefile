@@ -196,8 +196,9 @@ deploy: manifests kustomize ## Deploy controller to the K8s cluster specified in
 .PHONY: operator.yaml
 operator.yaml: manifests kustomize ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
-	mkdir -p docs
-	$(KUSTOMIZE) build config/default > docs/operator.yaml
+	mkdir -p docs/${VERSION} docs/latest
+	$(KUSTOMIZE) build config/default > docs/latest/operator.yaml
+	cat docs/latest/operator.yaml > docs/${VERSION}/operator.yaml
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
